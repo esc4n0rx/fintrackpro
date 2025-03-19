@@ -23,7 +23,6 @@ import { Calendar } from "@/components/ui/calendar"
 import { format } from "date-fns"
 import { ptBR } from "date-fns/locale"
 
-// Mock data for transactions
 const transactions = [
   {
     id: 1,
