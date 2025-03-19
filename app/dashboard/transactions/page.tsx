@@ -1,5 +1,6 @@
 "use client"
 
+import { useState, useEffect } from "react"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import {
@@ -22,65 +23,82 @@ import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover
 import { Calendar } from "@/components/ui/calendar"
 import { format } from "date-fns"
 import { ptBR } from "date-fns/locale"
+import { toast } from "react-hot-toast"
 
-const transactions = [
-  {
-    id: 1,
-    description: "Supermercado Extra",
-    amount: -350.75,
-    date: "2025-04-05",
-    category: "Alimentação",
-    account: "Nubank",
-    type: "expense",
-  },
-  {
-    id: 2,
-    description: "Salário",
-    amount: 5000,
-    date: "2025-04-05",
-    category: "Salário",
-    account: "Itaú",
-    type: "income",
-  },
-  {
-    id: 3,
-    description: "Netflix",
-    amount: -39.9,
-    date: "2025-04-04",
-    category: "Entretenimento",
-    account: "Nubank",
-    type: "expense",
-  },
-  {
-    id: 4,
-    description: "Uber",
-    amount: -28.5,
-    date: "2025-04-03",
-    category: "Transporte",
-    account: "Nubank",
-    type: "expense",
-  },
-  {
-    id: 5,
-    description: "Freelance",
-    amount: 800,
-    date: "2025-04-02",
-    category: "Renda Extra",
-    account: "Nubank",
-    type: "income",
-  },
-  {
-    id: 6,
-    description: "Aluguel",
-    amount: -1200,
-    date: "2025-04-01",
-    category: "Moradia",
-    account: "Itaú",
-    type: "expense",
-  },
-]
-
+// Estado para armazenar as transações
 export default function TransactionsPage() {
+  const [transactions, setTransactions] = useState<any[]>([])
+  const [description, setDescription] = useState("")
+  const [amount, setAmount] = useState(0)
+  const [date, setDate] = useState<string>("")
+  const [category, setCategory] = useState("")
+  const [account, setAccount] = useState("")
+  const [type, setType] = useState("expense") // 'expense' ou 'income'
+  const [isRecurring, setIsRecurring] = useState(false)
+  const [open, setOpen] = useState(false)
+
+  // Recuperar o user_id (ajuste conforme sua lógica de autenticação)
+  const userId = localStorage.getItem("user_id")
+
+  // Buscar transações ao carregar a página
+  useEffect(() => {
+    if (userId) {
+      fetch(`/api/transactions?user_id=${userId}`)
+        .then((res) => res.json())
+        .then((data) => setTransactions(data.transactions))
+        .catch((err) => toast.error("Erro ao carregar transações"))
+    }
+  }, [userId])
+
+  // Função para adicionar transação
+  const handleAddTransaction = async () => {
+    if (!userId || !description || amount === 0 || !category || !account || !date) {
+      toast.error("Preencha todos os campos.")
+      return
+    }
+
+    const newTransaction = {
+      user_id: userId,
+      description,
+      amount,
+      date,
+      category,
+      account,
+      type,
+      is_recurring: isRecurring,
+    }
+
+    const res = await fetch("/api/transactions", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify(newTransaction),
+    })
+
+    const data = await res.json()
+
+    if (res.ok) {
+      toast.success("Transação adicionada com sucesso!")
+      setTransactions((prev) => [data.transaction, ...prev]) // Adiciona a transação à lista
+      setOpen(false) // Fecha o modal
+      resetForm() // Reseta os campos do formulário
+    } else {
+      toast.error("Erro ao adicionar transação: " + data.error)
+    }
+  }
+
+  // Função para resetar os campos do formulário
+  const resetForm = () => {
+    setDescription("")
+    setAmount(0)
+    setDate("")
+    setCategory("")
+    setAccount("")
+    setType("expense")
+    setIsRecurring(false)
+  }
+
   return (
     <div className="min-h-screen bg-background">
       <Sidebar />
@@ -152,7 +170,7 @@ export default function TransactionsPage() {
                   </div>
                 </PopoverContent>
               </Popover>
-              <Dialog>
+              <Dialog open={open} onOpenChange={setOpen}>
                 <DialogTrigger asChild>
                   <Button className="gap-1 w-full sm:w-auto">
                     <Plus className="h-4 w-4" /> Nova transação
@@ -172,11 +190,22 @@ export default function TransactionsPage() {
                       <div className="grid gap-4">
                         <div className="grid gap-2">
                           <Label htmlFor="description">Descrição</Label>
-                          <Input id="description" placeholder="Ex: Supermercado" />
+                          <Input
+                            id="description"
+                            placeholder="Ex: Supermercado"
+                            value={description}
+                            onChange={(e) => setDescription(e.target.value)}
+                          />
                         </div>
                         <div className="grid gap-2">
                           <Label htmlFor="amount">Valor</Label>
-                          <Input id="amount" type="number" placeholder="0,00" />
+                          <Input
+                            id="amount"
+                            type="number"
+                            placeholder="0,00"
+                            value={amount}
+                            onChange={(e) => setAmount(Number(e.target.value))}
+                          />
                         </div>
                         <div className="grid gap-2">
                           <Label htmlFor="date">Data</Label>
@@ -188,13 +217,16 @@ export default function TransactionsPage() {
                               </Button>
                             </PopoverTrigger>
                             <PopoverContent className="w-auto p-0">
-                              <Calendar locale={ptBR} />
+                              <Calendar locale={ptBR} onSelect={(date: Date | undefined) => setDate(date?.toISOString().split("T")[0] || "")} />
                             </PopoverContent>
                           </Popover>
                         </div>
                         <div className="grid gap-2">
                           <Label htmlFor="category">Categoria</Label>
-                          <Select>
+                          <Select
+                            value={category}
+                            onValueChange={setCategory}
+                          >
                             <SelectTrigger id="category">
                               <SelectValue placeholder="Selecione uma categoria" />
                             </SelectTrigger>
@@ -208,7 +240,10 @@ export default function TransactionsPage() {
                         </div>
                         <div className="grid gap-2">
                           <Label htmlFor="account">Conta</Label>
-                          <Select>
+                          <Select
+                            value={account}
+                            onValueChange={setAccount}
+                          >
                             <SelectTrigger id="account">
                               <SelectValue placeholder="Selecione uma conta" />
                             </SelectTrigger>
@@ -218,64 +253,23 @@ export default function TransactionsPage() {
                             </SelectContent>
                           </Select>
                         </div>
-                      </div>
-                    </TabsContent>
-                    <TabsContent value="income" className="space-y-4 pt-4">
-                      <div className="grid gap-4">
                         <div className="grid gap-2">
-                          <Label htmlFor="description-income">Descrição</Label>
-                          <Input id="description-income" placeholder="Ex: Salário" />
-                        </div>
-                        <div className="grid gap-2">
-                          <Label htmlFor="amount-income">Valor</Label>
-                          <Input id="amount-income" type="number" placeholder="0,00" />
-                        </div>
-                        <div className="grid gap-2">
-                          <Label htmlFor="date-income">Data</Label>
-                          <Popover>
-                            <PopoverTrigger asChild>
-                              <Button variant="outline" className="w-full justify-start text-left font-normal">
-                                <CalendarIcon className="mr-2 h-4 w-4" />
-                                <span>Selecionar data</span>
-                              </Button>
-                            </PopoverTrigger>
-                            <PopoverContent className="w-auto p-0">
-                              <Calendar locale={ptBR} />
-                            </PopoverContent>
-                          </Popover>
-                        </div>
-                        <div className="grid gap-2">
-                          <Label htmlFor="category-income">Categoria</Label>
-                          <Select>
-                            <SelectTrigger id="category-income">
-                              <SelectValue placeholder="Selecione uma categoria" />
-                            </SelectTrigger>
-                            <SelectContent>
-                              <SelectItem value="salary">Salário</SelectItem>
-                              <SelectItem value="freelance">Freelance</SelectItem>
-                              <SelectItem value="investment">Investimentos</SelectItem>
-                              <SelectItem value="other">Outros</SelectItem>
-                            </SelectContent>
-                          </Select>
-                        </div>
-                        <div className="grid gap-2">
-                          <Label htmlFor="account-income">Conta</Label>
-                          <Select>
-                            <SelectTrigger id="account-income">
-                              <SelectValue placeholder="Selecione uma conta" />
-                            </SelectTrigger>
-                            <SelectContent>
-                              <SelectItem value="nubank">Nubank</SelectItem>
-                              <SelectItem value="itau">Itaú</SelectItem>
-                            </SelectContent>
-                          </Select>
+                          <Label htmlFor="recurring">Transação Recorrente</Label>
+                          <Input
+                            id="recurring"
+                            type="checkbox"
+                            checked={isRecurring}
+                            onChange={(e) => setIsRecurring(e.target.checked)}
+                          />
                         </div>
                       </div>
                     </TabsContent>
+                    <DialogFooter>
+                      <Button type="button" onClick={handleAddTransaction}>
+                        Salvar transação
+                      </Button>
+                    </DialogFooter>
                   </Tabs>
-                  <DialogFooter>
-                    <Button type="submit">Salvar transação</Button>
-                  </DialogFooter>
                 </DialogContent>
               </Dialog>
             </div>
@@ -332,4 +326,3 @@ export default function TransactionsPage() {
     </div>
   )
 }
-
