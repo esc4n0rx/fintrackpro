@@ -33,12 +33,15 @@ export default function TransactionsPage() {
   const [date, setDate] = useState<string>("")
   const [category, setCategory] = useState("")
   const [account, setAccount] = useState("")
-  const [type, setType] = useState("expense") // 'expense' ou 'income'
+  const [type, setType] = useState("expense") 
   const [isRecurring, setIsRecurring] = useState(false)
   const [open, setOpen] = useState(false)
+  const [userId, setUserId] = useState<string | null>(null); 
 
-  // Recuperar o user_id (ajuste conforme sua lógica de autenticação)
-  const userId = localStorage.getItem("user_id")
+  useEffect(() => {
+    const userId = localStorage.getItem("user_id");
+    setUserId(userId);
+  }, []);
 
   // Buscar transações ao carregar a página
   useEffect(() => {

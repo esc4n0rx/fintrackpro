@@ -39,7 +39,7 @@ export default function Home() {
           </div>
           <div className="flex-1">
             <Image
-              src="/placeholder.svg?height=400&width=500"
+              src="/placeholder.jpg?height=400&width=500"
               width={500}
               height={400}
               alt="Dashboard preview"
