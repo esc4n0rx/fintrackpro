@@ -50,18 +50,18 @@ export default function GoalsPage() {
   const [goalDueDate, setGoalDueDate] = useState<Date | null>(null)
   const [goalIcon, setGoalIcon] = useState("")
   const [goalColor, setGoalColor] = useState("")
-  // Estado para controlar a abertura do modal de criação
+  const [userId, setUserId] = useState<string | null>(null); 
   const [open, setOpen] = useState(false)
 
-  // Estados para o modal de adicionar valor
   const [openAddValue, setOpenAddValue] = useState(false)
   const [selectedGoalId, setSelectedGoalId] = useState("")
   const [addAmount, setAddAmount] = useState(0)
 
-  // Recupera o user_id (ajuste conforme sua lógica de autenticação)
-  const userId = localStorage.getItem("user_id")
+  useEffect(() => {
+    const userId = localStorage.getItem("user_id");
+    setUserId(userId);
+  }, []);
 
-  // Função para buscar os goals do usuário
   const fetchGoals = async () => {
     if (userId) {
       try {
@@ -70,7 +70,6 @@ export default function GoalsPage() {
           headers: { "Content-Type": "application/json" }
         })
         const data = await res.json()
-        // Mapeia due_date para dueDate e garante current como número (ou 0 se nulo)
         const formatted = data.goals.map((goal: any) => ({
           ...goal,
           dueDate: goal.due_date ?? null,
