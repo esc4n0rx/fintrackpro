@@ -25,17 +25,21 @@ import { toast } from "react-hot-toast"
 export default function AccountsPage() {
   const [hostAccounts, setHostAccounts] = useState<any>(null)
   const [partnerAccounts, setPartnerAccounts] = useState<any>(null)
-  
+  const [userId, setUserId] = useState<string | null>(null); 
   const [accountType, setAccountType] = useState('')
   const [name, setName] = useState('')
   const [balance, setBalance] = useState(0)
   const [limit, setLimit] = useState(0)
   const [dueDate, setDueDate] = useState(0)
   
-  // Estado para controlar a abertura do modal
   const [open, setOpen] = useState(false)
   
-  const userId = localStorage.getItem("user_id")
+  useEffect(() => {
+    const userId = localStorage.getItem("user_id");
+    setUserId(userId);
+  }, []);
+
+
   
   useEffect(() => {
     if (userId) {
