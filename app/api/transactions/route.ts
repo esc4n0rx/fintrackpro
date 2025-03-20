@@ -1,5 +1,6 @@
 import { createClient } from '@supabase/supabase-js'
 import { NextResponse } from 'next/server'
+import logger from '@/lib/logger' // Certifique-se de que o caminho está correto
 
 process.env.NODE_TLS_REJECT_UNAUTHORIZED = '0'
 
@@ -9,37 +10,43 @@ const supabase = createClient(
 )
 
 export async function GET(req: Request) {
-  const url = new URL(req.url)
-  const user_id = url.searchParams.get('user_id')
+  try {
+    const url = new URL(req.url)
+    const user_id = url.searchParams.get('user_id')
 
-  if (!user_id) {
-    return NextResponse.json({ error: 'user_id é obrigatório.' }, { status: 400 })
+    if (!user_id) {
+      return NextResponse.json({ error: 'user_id é obrigatório.' }, { status: 400 })
+    }
+
+    const { data, error } = await supabase
+      .from('transactions')
+      .select('*')
+      .eq('user_id', user_id)
+      .order('date', { ascending: false })
+
+    if (error) {
+      logger.error("Erro ao buscar transações:", error)
+      return NextResponse.json({ error: error.message }, { status: 500 })
+    }
+
+    return NextResponse.json({ transactions: data })
+  } catch (err) {
+    logger.error(err)
+    return NextResponse.json({ error: 'Erro inesperado ao processar o pedido.' }, { status: 500 })
   }
-
-  const { data, error } = await supabase
-    .from('transactions')
-    .select('*')
-    .eq('user_id', user_id)
-    .order('date', { ascending: false })
-
-  if (error) {
-    return NextResponse.json({ error: error.message }, { status: 500 })
-  }
-
-  return NextResponse.json({ transactions: data })
 }
 
-// POST: Cria uma nova transação (despesa ou receita)
 export async function POST(req: Request) {
   try {
     const { user_id, description, amount, date, category, account, type, is_recurring } = await req.json()
 
-    // Validação básica
+    logger.info("Dados recebidos na transação:", { user_id, description, amount, date, category, account, type, is_recurring })
+
     if (!user_id || !description || !amount || !date || !category || !account || !type) {
       return NextResponse.json({ error: 'Campos obrigatórios ausentes.' }, { status: 400 })
     }
 
-    // Insere a transação no banco
+    // Insere a transação na tabela "transactions"
     const { data, error } = await supabase
       .from('transactions')
       .insert([
@@ -51,19 +58,25 @@ export async function POST(req: Request) {
           category,
           account,
           type,
-          is_recurring: is_recurring || false, // marca como recorrente se necessário
+          is_recurring: is_recurring || false,
         }
       ])
       .single()
 
     if (error) {
+      logger.error("Erro ao inserir transação:", error)
       return NextResponse.json({ error: error.message }, { status: 500 })
     }
 
-    // Atualiza o saldo da conta após a transação
-    await updateAccountBalance(account, amount, type)
+    // Atualiza o saldo/limite da conta usando o ID da conta
+    try {
+      await updateAccountBalance(user_id, account, amount, type)
+    } catch (err: any) {
+      logger.error('Erro ao atualizar saldo da conta:', err)
+      return NextResponse.json({ error: err.message }, { status: 500 })
+    }
 
-    // Se for uma despesa recorrente, cria a próxima transação
+    // Se a transação for recorrente, cria uma nova transação para o próximo período (exemplo mensal)
     if (is_recurring) {
       const nextDate = new Date(date)
       nextDate.setMonth(nextDate.getMonth() + 1)
@@ -74,7 +87,7 @@ export async function POST(req: Request) {
             user_id,
             description,
             amount,
-            date: nextDate.toISOString().split('T')[0], // Define a data para o próximo mês
+            date: nextDate.toISOString().split('T')[0],
             category,
             account,
             type,
@@ -83,76 +96,103 @@ export async function POST(req: Request) {
         ])
     }
 
+    logger.info("Transação inserida com sucesso:", data)
     return NextResponse.json({ message: 'Transação criada com sucesso', transaction: data })
   } catch (err) {
-    console.error('Erro inesperado:', err)
+    logger.error('Erro inesperado:', err)
     return NextResponse.json({ error: 'Erro inesperado ao processar o pedido.' }, { status: 500 })
   }
 }
 
-// PATCH: Atualiza o saldo de uma conta após uma transação
-async function updateAccountBalance(account: string, amount: number, type: string) {
-  try {
-    // Verifica a conta e ajusta o saldo
-    const { data: accountData, error } = await supabase
-      .from('accounts')
-      .select('balance')
-      .eq('name', account)
-      .single()
+// Função para atualizar o saldo/limite da conta conforme o tipo de conta
+async function updateAccountBalance(user_id: string, accountId: string, amount: number, transactionType: string) {
+  logger.info("Atualizando saldo para:", { user_id, accountId, amount, transactionType })
 
-    if (error) {
-      throw new Error('Conta não encontrada')
-    }
+  // Tenta atualizar em bank_accounts (conta bancária)
+  let { data: bankAccount, error: bankError } = await supabase
+    .from('bank_accounts')
+    .select('balance')
+    .eq('id', accountId)
+    .eq('user_id', user_id)
+    .maybeSingle()
 
-    const newBalance = type === 'income' 
-      ? accountData.balance + amount 
-      : accountData.balance - amount
+  logger.info("Resultado da consulta bank_accounts:", { bankAccount, bankError })
 
-    // Atualiza o saldo da conta
-    await supabase
-      .from('accounts')
+  if (bankAccount) {
+    const newBalance = transactionType === 'income'
+      ? bankAccount.balance + amount
+      : bankAccount.balance - amount
+    logger.info("Banco - saldo atual:", bankAccount.balance, "novo saldo:", newBalance)
+    const { error: updateError } = await supabase
+      .from('bank_accounts')
       .update({ balance: newBalance })
-      .eq('name', account)
-  } catch (err) {
-    console.error('Erro ao atualizar saldo da conta:', err)
-    throw new Error('Erro ao atualizar saldo da conta')
+      .eq('user_id', user_id)
+      .eq('id', accountId)
+    if (updateError) {
+      logger.error("Erro ao atualizar bank_accounts:", updateError)
+      throw new Error(updateError.message)
+    }
+    logger.info("Atualização em bank_accounts realizada com sucesso.")
+    return
   }
-}
 
-// DELETE: Excluir uma transação
-export async function DELETE(req: Request) {
-  try {
-    const url = new URL(req.url)
-    const transaction_id = url.pathname.split('/').pop()
+  // Tenta atualizar em credit_cards (cartão de crédito)
+  let { data: creditCard, error: creditError } = await supabase
+    .from('credit_cards')
+    .select('limit')
+    .eq('id', accountId)
+    .eq('user_id', user_id)
+    .maybeSingle()
 
-    if (!transaction_id) {
-      return NextResponse.json({ error: 'transaction_id é necessário' }, { status: 400 })
+  logger.info("Resultado da consulta credit_cards:", { creditCard, creditError })
+
+  if (creditCard) {
+    // Para cartão de crédito: se for expense, diminui o limite; se for income, aumenta o limite (limite pode ficar negativo)
+    const newLimit = transactionType === 'expense'
+      ? creditCard.limit - amount
+      : creditCard.limit + amount
+    logger.info("Cartão - limite atual:", creditCard.limit, "novo limite:", newLimit)
+    const { error: updateError } = await supabase
+      .from('credit_cards')
+      .update({ limit: newLimit })
+      .eq('user_id', user_id)
+      .eq('id', accountId)
+    if (updateError) {
+      logger.error("Erro ao atualizar credit_cards:", updateError)
+      throw new Error(updateError.message)
     }
-
-    // Deleta a transação do banco de dados
-    const { error } = await supabase
-      .from('transactions')
-      .delete()
-      .eq('id', transaction_id)
-
-    if (error) {
-      return NextResponse.json({ error: error.message }, { status: 500 })
-    }
-
-    // Se a transação excluída for de receita ou despesa, atualiza o saldo da conta
-    const { data: deletedTransaction } = await supabase
-      .from('transactions')
-      .select('account, amount, type')
-      .eq('id', transaction_id)
-      .single()
-
-    if (deletedTransaction) {
-      await updateAccountBalance(deletedTransaction.account, deletedTransaction.amount, deletedTransaction.type)
-    }
-
-    return NextResponse.json({ message: 'Transação excluída com sucesso' })
-  } catch (err) {
-    console.error('Erro ao excluir transação:', err)
-    return NextResponse.json({ error: 'Erro ao excluir transação' }, { status: 500 })
+    logger.info("Atualização em credit_cards realizada com sucesso.")
+    return
   }
+
+  // Tenta atualizar em wallets (carteira)
+  let { data: wallet, error: walletError } = await supabase
+    .from('wallets')
+    .select('balance')
+    .eq('id', accountId)
+    .eq('user_id', user_id)
+    .maybeSingle()
+
+  logger.info("Resultado da consulta wallets:", { wallet, walletError })
+
+  if (wallet) {
+    const newBalance = transactionType === 'income'
+      ? wallet.balance + amount
+      : wallet.balance - amount
+    logger.info("Carteira - saldo atual:", wallet.balance, "novo saldo:", newBalance)
+    const { error: updateError } = await supabase
+      .from('wallets')
+      .update({ balance: newBalance })
+      .eq('user_id', user_id)
+      .eq('id', accountId)
+    if (updateError) {
+      logger.error("Erro ao atualizar wallets:", updateError)
+      throw new Error(updateError.message)
+    }
+    logger.info("Atualização em wallets realizada com sucesso.")
+    return
+  }
+
+  logger.error("Nenhuma conta encontrada para:", { user_id, accountId })
+  throw new Error("Conta não encontrada")
 }
