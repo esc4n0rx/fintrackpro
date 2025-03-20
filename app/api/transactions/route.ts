@@ -1,6 +1,5 @@
 import { createClient } from '@supabase/supabase-js'
 import { NextResponse } from 'next/server'
-import logger from '@/lib/logger' // Certifique-se de que o caminho está correto
 
 process.env.NODE_TLS_REJECT_UNAUTHORIZED = '0'
 
@@ -25,13 +24,12 @@ export async function GET(req: Request) {
       .order('date', { ascending: false })
 
     if (error) {
-      logger.error("Erro ao buscar transações:", error)
       return NextResponse.json({ error: error.message }, { status: 500 })
     }
 
     return NextResponse.json({ transactions: data })
   } catch (err) {
-    logger.error(err)
+
     return NextResponse.json({ error: 'Erro inesperado ao processar o pedido.' }, { status: 500 })
   }
 }
@@ -40,7 +38,6 @@ export async function POST(req: Request) {
   try {
     const { user_id, description, amount, date, category, account, type, is_recurring } = await req.json()
 
-    logger.info("Dados recebidos na transação:", { user_id, description, amount, date, category, account, type, is_recurring })
 
     if (!user_id || !description || !amount || !date || !category || !account || !type) {
       return NextResponse.json({ error: 'Campos obrigatórios ausentes.' }, { status: 400 })
@@ -64,7 +61,6 @@ export async function POST(req: Request) {
       .single()
 
     if (error) {
-      logger.error("Erro ao inserir transação:", error)
       return NextResponse.json({ error: error.message }, { status: 500 })
     }
 
@@ -72,7 +68,6 @@ export async function POST(req: Request) {
     try {
       await updateAccountBalance(user_id, account, amount, type)
     } catch (err: any) {
-      logger.error('Erro ao atualizar saldo da conta:', err)
       return NextResponse.json({ error: err.message }, { status: 500 })
     }
 
@@ -96,17 +91,17 @@ export async function POST(req: Request) {
         ])
     }
 
-    logger.info("Transação inserida com sucesso:", data)
+   
     return NextResponse.json({ message: 'Transação criada com sucesso', transaction: data })
   } catch (err) {
-    logger.error('Erro inesperado:', err)
+    
     return NextResponse.json({ error: 'Erro inesperado ao processar o pedido.' }, { status: 500 })
   }
 }
 
 // Função para atualizar o saldo/limite da conta conforme o tipo de conta
 async function updateAccountBalance(user_id: string, accountId: string, amount: number, transactionType: string) {
-  logger.info("Atualizando saldo para:", { user_id, accountId, amount, transactionType })
+  
 
   // Tenta atualizar em bank_accounts (conta bancária)
   let { data: bankAccount, error: bankError } = await supabase
@@ -116,23 +111,23 @@ async function updateAccountBalance(user_id: string, accountId: string, amount: 
     .eq('user_id', user_id)
     .maybeSingle()
 
-  logger.info("Resultado da consulta bank_accounts:", { bankAccount, bankError })
+  
 
   if (bankAccount) {
     const newBalance = transactionType === 'income'
       ? bankAccount.balance + amount
       : bankAccount.balance - amount
-    logger.info("Banco - saldo atual:", bankAccount.balance, "novo saldo:", newBalance)
+    
     const { error: updateError } = await supabase
       .from('bank_accounts')
       .update({ balance: newBalance })
       .eq('user_id', user_id)
       .eq('id', accountId)
     if (updateError) {
-      logger.error("Erro ao atualizar bank_accounts:", updateError)
+      
       throw new Error(updateError.message)
     }
-    logger.info("Atualização em bank_accounts realizada com sucesso.")
+    
     return
   }
 
@@ -144,24 +139,23 @@ async function updateAccountBalance(user_id: string, accountId: string, amount: 
     .eq('user_id', user_id)
     .maybeSingle()
 
-  logger.info("Resultado da consulta credit_cards:", { creditCard, creditError })
 
   if (creditCard) {
     // Para cartão de crédito: se for expense, diminui o limite; se for income, aumenta o limite (limite pode ficar negativo)
     const newLimit = transactionType === 'expense'
       ? creditCard.limit - amount
       : creditCard.limit + amount
-    logger.info("Cartão - limite atual:", creditCard.limit, "novo limite:", newLimit)
+  
     const { error: updateError } = await supabase
       .from('credit_cards')
       .update({ limit: newLimit })
       .eq('user_id', user_id)
       .eq('id', accountId)
     if (updateError) {
-      logger.error("Erro ao atualizar credit_cards:", updateError)
+      
       throw new Error(updateError.message)
     }
-    logger.info("Atualização em credit_cards realizada com sucesso.")
+    
     return
   }
 
@@ -173,26 +167,23 @@ async function updateAccountBalance(user_id: string, accountId: string, amount: 
     .eq('user_id', user_id)
     .maybeSingle()
 
-  logger.info("Resultado da consulta wallets:", { wallet, walletError })
 
   if (wallet) {
     const newBalance = transactionType === 'income'
       ? wallet.balance + amount
       : wallet.balance - amount
-    logger.info("Carteira - saldo atual:", wallet.balance, "novo saldo:", newBalance)
+    
     const { error: updateError } = await supabase
       .from('wallets')
       .update({ balance: newBalance })
       .eq('user_id', user_id)
       .eq('id', accountId)
     if (updateError) {
-      logger.error("Erro ao atualizar wallets:", updateError)
+      
       throw new Error(updateError.message)
     }
-    logger.info("Atualização em wallets realizada com sucesso.")
+    
     return
   }
-
-  logger.error("Nenhuma conta encontrada para:", { user_id, accountId })
   throw new Error("Conta não encontrada")
 }
